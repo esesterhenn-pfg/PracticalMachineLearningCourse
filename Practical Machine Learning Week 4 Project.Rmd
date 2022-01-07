@@ -1,0 +1,129 @@
+---
+title: "Week 4 Project Writeup"
+author: "Eric Sesterhenn"
+date: "December 31, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Predicting Activity Quality from Monitors
+
+## Background
+
+A study was conducted to collect a large amount of data from activity monitoring devices about various excercises. These devices allow a group of enthusiast, known as the quanitified self movement group, to understand how they can improve their health. The goal of this project will be to use the data collected from the monitors to evaluate how well they are performing the excersises. The participants that collected the data performed several excersises correctly and incorrectly intentionally.
+
+## Data
+
+Two data sets are used to evaulate the quality of activity using various activity measurements. The prediction variable is classe, a variable that indicates the quality of the activity (A - E) where A is the highest quality and E is the lowest quality.
+
+A list of the columns and an example of the data sets, training and testing data, is shown below.
+
+```{r data, echo=FALSE}
+set.seed(101)
+training_data = read.csv("C:/Users/s109158/Desktop/John Hopkins Course/pml-training.csv")
+testing_data = read.csv("C:/Users/s109158/Desktop/John Hopkins Course/pml-testing.csv")
+
+#colnames(training_data)
+colnames(testing_data)
+head(training_data[, c('user_name','pitch_arm','stddev_yaw_forearm','classe')])
+head(testing_data[, c('user_name','pitch_arm','stddev_yaw_forearm')])
+```
+
+## Required Packages
+
+There are three packages required to trainig and test the model, caret, rpart, rpart.plot, randomForest, e1071, and kernlab.
+
+```{r package, echo=FALSE}
+#install.packages("caret")
+library("caret")
+#install.packages("rpart")
+library("rpart")
+#install.packages("rpart.plot")
+library("rpart.plot")
+#install.packages("randomForest")
+library("randomForest")
+#install.packages("e1071")
+library("e1071")
+#install.packages("kernlab")
+library("kernlab")
+```
+
+## Data Pre-Processing
+
+The following transformations are used to clean the data and prepare it to be used in machine learning models. First, only columns with better than 80% data coverage in the training set are selected. Then columns that have near zero variance are removed from the training set as they will not be able to differentiate the response variable. The first 7 columns are also removed as they are the identifier columns for the dataset and would not be indicators of the response variable. Following that, only input features that exists in the testing and new training data are selected. Finally, the training dataset is split into two sets to better evaluate the performance of the models before applying them to the testing set.
+
+```{r data_preprocess, echo=FALSE}
+training_data = training_data[, which(colMeans(!is.na(training_data))>0.8)]
+training_data = training_data[,-nearZeroVar(training_data)]
+training_data = training_data[,-c(1:7)]
+col_intersect = intersect(names(training_data),names(testing_data))
+training_data = training_data[,append(col_intersect,"classe")]
+testing_data = testing_data[,append(col_intersect,"problem_id")]
+
+train_partition = createDataPartition(y=training_data$classe,p=0.7,list = F)
+train = training_data[train_partition,]
+validation = training_data[-train_partition,]
+```
+
+## Model Evaluation
+
+In this section, several models will be created based on the training and validation data set, including: Decision Trees, Random Forest, and Support Vector Machines. Each model was selected as they are simple, widely used models in industry and research. Each model will be trained and validated to assess which model will be used to predict the classe in the prediction set. Due to the fairly small size of the training data set, a 4 fold cross validation will be used to train each model.
+
+```{r cross_validation, echo=FALSE}
+cv = trainControl(method = "cv", number = 4, verboseIter = F)
+```
+
+### Decision Tree Model
+The following code is used to train and validate the decision tree model. We would hypothesize that the decision tree model will perform the worst, but it will serve as a good benchmark for performance gains in the other models. A tune length is specified at random to help prevent overfitting.
+
+```{r decision_tree_train, echo=FALSE}
+dt_model = train(classe~., data = train, method = "rpart",trControl = cv, tuneLength = 7)
+```
+
+```{r decision_tree_valid, echo=FALSE}
+dt_validate = predict(dt_model,validation)
+(dt_cm = confusionMatrix(dt_validate,factor(validation$classe)))
+```
+
+### Random Forest Model
+The following code is used to train and validate the random forest model. We would hypothesize that the random forests model will outperform the decision tree but may not outperform the support vector machine model. A tune length is specified at random to help prevent overfitting. The number of trees produced for the model is limited to 10 as little improvement was realized as more trees were added.
+
+```{r rf_train, echo=FALSE}
+rf_model = train(classe~., data = train, method = "rf",trControl = cv, tuneLength = 7, ntree = 10)
+```
+
+```{r rf_valid, echo=FALSE}
+rf_validate = predict(rf_model,validation)
+(rf_cm = confusionMatrix(rf_validate,factor(validation$classe)))
+```
+
+### Support Vector Machine Model
+The following code is used to train and validate the support vector machine model. We would hypothesize that the support vector machine model will outperform the decision tree but may not outperform the random forest model. A tune length is specified at random to help prevent overfitting.
+
+```{r svm_train, echo=FALSE}
+svm_model = train(classe~., data = train, method = "svmLinear",trControl = cv, tuneLength = 7, verbose = F)
+```
+
+```{r svm_valid, echo=FALSE}
+svm_validate = predict(svm_model,validation)
+(svm_cm = confusionMatrix(svm_validate,factor(validation$classe)))
+```
+
+## Analysis
+According to the model accuracies shown below, the Random Forest model outperformed the Decision Tree and Support Vector Machine models. As anticipated, the decision tree model underperformed the other two models. The Random Forest model will be used to evaluate the test dataset as it is clearly the best model for this problem.
+
+```{r analysis, echo=FALSE}
+result_df = data.frame(c('Decision Tree','Random Forest','Support Vector Machine'),c(dt_cm$overall[['Accuracy']],rf_cm$overall[['Accuracy']],svm_cm$overall[['Accuracy']]))
+colnames(result_df) = c('Model Type','Accuracy')
+print(result_df)
+```
+
+## Evaluation on Prediction Dataset
+As mentioned, the Random Forest model will be used to predict the 20 problems in the test dataset. The following code is used to evaluate the 20 problems. The results are also returned in the code below.
+
+```{r test_analysis, echo=FALSE}
+testing_data$classe_pred = predict(rf_model,testing_data)
+print(testing_data[,c('problem_id','classe_pred')])
+```
